@@ -1,0 +1,34 @@
+name: Build BOOX Scrcpy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Make Gradle executable
+        run: chmod +x gradlew
+
+      - name: Build ARM64 debug APK
+        run: ./gradlew assembleDebug -PabiList=arm64-v8a
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: boox-scrcpy
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
