@@ -18,8 +18,36 @@ import io.github.miuzarte.scrcpyforandroid.services.PictureInPictureActionReceiv
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.lang.ref.WeakReference
+import android.view.keyEvent
+import androidx.lifecycle.lifecycleScope
+import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
+import kotlinx.coroutines.launch
+
 
 class StreamActivity: FragmentActivity() {
+        override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+            val scrcpy = AppRuntime.scrcpy
+
+            if (scrcpy?.isStarted() == true &&
+                (event.action == KeyEvent.ACTION_DOWN ||
+                 event.action == KeyEvent.ACTION_UP)
+            ) {
+                lifecycleScope.launch {
+                    scrcpy.injectKeycode(
+                    action = event.action,
+                    keycode = event.keyCode,
+                    repeat = event.repeatCount,
+                    metaState = event.metaState,
+                    )
+                }
+
+                return true
+            }
+
+            return super.dispatchKeyEvent(event)
+        }
+
+    
     private val basicPip by lazy { BasicPictureInPicture(this, ContextCompat.getMainExecutor(this)) }
 
     private val pipActionReceiver = PictureInPictureActionReceiver()
