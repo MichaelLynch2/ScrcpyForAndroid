@@ -18,7 +18,7 @@ import io.github.miuzarte.scrcpyforandroid.services.PictureInPictureActionReceiv
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.lang.ref.WeakReference
-import android.view.keyEvent
+import android.view.KeyEvent
 import androidx.lifecycle.lifecycleScope
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import kotlinx.coroutines.launch
