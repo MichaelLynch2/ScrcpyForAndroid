@@ -37,6 +37,13 @@ class TouchEventHandler(
         actionButton: Int,
         buttons: Int,
     ) -> Unit,
+    private val onInjectScroll: suspend (
+        x: Int,
+        y: Int,
+        hScroll: Float,
+        vScroll: Float,
+        buttons: Int,
+    ) -> Unit,
     private val onBackOrScreenOn: suspend (action: Int) -> Unit,
     private val onActiveTouchCountChanged: (Int) -> Unit,
     private val onActiveTouchDebugChanged: (String) -> Unit,
@@ -57,6 +64,7 @@ class TouchEventHandler(
     }
 
     private val eventPointerIds = HashSet<Int>(10)
+    private var lastMouseButtons = 0
     private val eventPositions = HashMap<Int, Offset>(10)
     private val eventPressures = HashMap<Int, Float>(10)
     private val justPressedPointerIds = HashSet<Int>(10)
@@ -176,94 +184,120 @@ class TouchEventHandler(
         onActiveTouchDebugChanged(debug)
     }
 
-    private fun handleMouseEvent(
-        event: MotionEvent,
-        bounds: ContentBounds,
-    ): Boolean {
-        val rawX = event.getX(0)
-        val rawY = event.getY(0)
-        val (x, y) = mapToDevice(rawX, rawY, bounds)
-        val pressure = event.getPressure(0).coerceIn(0f, 1f)
-        val buttons = event.buttonState
-        val actionButton = event.actionButton
-        val isHoverMotion = when (event.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER,
-            MotionEvent.ACTION_HOVER_MOVE,
-            MotionEvent.ACTION_HOVER_EXIT,
-                -> true
+private fun handleMouseEvent(
+    event: MotionEvent,
+    bounds: ContentBounds,
+): Boolean {
+    val rawX = event.getX(0)
+    val rawY = event.getY(0)
+    val (x, y) = mapToDevice(rawX, rawY, bounds)
+    val pressure = event.getPressure(0).coerceIn(0f, 1f)
+    val buttons = event.buttonState
 
-            MotionEvent.ACTION_MOVE -> buttons == 0
-            else -> false
-        }
-
-        if (!mouseHoverEnabled && isHoverMotion) {
-            return true
-        }
-
-        if (actionButton == MotionEvent.BUTTON_SECONDARY ||
-            buttons and MotionEvent.BUTTON_SECONDARY != 0
-        ) {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN,
-                MotionEvent.ACTION_BUTTON_PRESS,
-                    -> {
-                    coroutineScope.launch {
-                        runCatching {
-                            onBackOrScreenOn(0)
-                        }.onFailure { e ->
-                            Log.w(FULLSCREEN_TOUCH_LOG_TAG, "mouse secondary down failed", e)
-                        }
-                    }
-                }
-
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_BUTTON_RELEASE,
-                    -> {
-                    coroutineScope.launch {
-                        runCatching {
-                            onBackOrScreenOn(1)
-                        }.onFailure { e ->
-                            Log.w(FULLSCREEN_TOUCH_LOG_TAG, "mouse secondary up failed", e)
-                        }
-                    }
-                }
-            }
-            return true
-        }
-
-        val injectAction = when (event.actionMasked) {
-            MotionEvent.ACTION_HOVER_ENTER -> MotionEvent.ACTION_HOVER_ENTER
-            MotionEvent.ACTION_HOVER_MOVE -> MotionEvent.ACTION_HOVER_MOVE
-            MotionEvent.ACTION_HOVER_EXIT -> MotionEvent.ACTION_HOVER_EXIT
-            MotionEvent.ACTION_DOWN -> MotionEvent.ACTION_DOWN
-            MotionEvent.ACTION_UP -> MotionEvent.ACTION_UP
-            MotionEvent.ACTION_MOVE -> MotionEvent.ACTION_MOVE
-
-            MotionEvent.ACTION_BUTTON_PRESS,
-            MotionEvent.ACTION_BUTTON_RELEASE,
-                -> return true
-
-            else -> return true
-        }
+    // Trackpad two-finger scrolling arrives as ACTION_SCROLL.
+    if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+        val hScroll = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+        val vScroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
 
         coroutineScope.launch {
             runCatching {
-                onInjectTouch(
-                    injectAction,
-                    POINTER_ID_MOUSE,
+                onInjectScroll(
                     x,
                     y,
-                    pressure,
-                    actionButton,
+                    hScroll,
+                    vScroll,
                     buttons,
                 )
             }.onFailure { e ->
-                Log.w(FULLSCREEN_TOUCH_LOG_TAG, "handleMouseEvent failed", e)
+                Log.w(
+                    FULLSCREEN_TOUCH_LOG_TAG,
+                    "mouse scroll failed",
+                    e,
+                )
             }
         }
+
         return true
     }
 
+    val isHoverMotion = when (event.actionMasked) {
+        MotionEvent.ACTION_HOVER_ENTER,
+        MotionEvent.ACTION_HOVER_MOVE,
+        MotionEvent.ACTION_HOVER_EXIT,
+            -> true
+
+        MotionEvent.ACTION_MOVE -> buttons == 0
+        else -> false
+    }
+
+    if (!mouseHoverEnabled && isHoverMotion) {
+        return true
+    }
+
+    /*
+     * Android sends ACTION_BUTTON_PRESS/RELEASE in addition to
+     * ACTION_DOWN/UP for mouse buttons. scrcpy's server generates
+     * those button events itself from DOWN/UP, so ignore the
+     * duplicates here.
+     */
+    if (event.actionMasked == MotionEvent.ACTION_BUTTON_PRESS ||
+        event.actionMasked == MotionEvent.ACTION_BUTTON_RELEASE
+    ) {
+        return true
+    }
+
+    val injectAction = when (event.actionMasked) {
+        MotionEvent.ACTION_HOVER_ENTER -> MotionEvent.ACTION_HOVER_ENTER
+        MotionEvent.ACTION_HOVER_MOVE -> MotionEvent.ACTION_HOVER_MOVE
+        MotionEvent.ACTION_HOVER_EXIT -> MotionEvent.ACTION_HOVER_EXIT
+        MotionEvent.ACTION_DOWN -> MotionEvent.ACTION_DOWN
+        MotionEvent.ACTION_UP -> MotionEvent.ACTION_UP
+        MotionEvent.ACTION_MOVE -> MotionEvent.ACTION_MOVE
+        else -> return true
+    }
+
+    /*
+     * actionButton is normally only populated on Android's
+     * ACTION_BUTTON_PRESS/RELEASE events. Since we deliberately
+     * consume those duplicate events above, infer which button
+     * changed from buttonState.
+     */
+    val changedButtons = lastMouseButtons xor buttons
+    val actionButton = when (injectAction) {
+        MotionEvent.ACTION_DOWN,
+        MotionEvent.ACTION_UP,
+            -> if (event.actionButton != 0) {
+                event.actionButton
+            } else {
+                changedButtons
+            }
+
+        else -> 0
+    }
+
+    coroutineScope.launch {
+        runCatching {
+            onInjectTouch(
+                injectAction,
+                POINTER_ID_MOUSE,
+                x,
+                y,
+                pressure,
+                actionButton,
+                buttons,
+            )
+        }.onFailure { e ->
+            Log.w(
+                FULLSCREEN_TOUCH_LOG_TAG,
+                "handleMouseEvent failed",
+                e,
+            )
+        }
+    }
+
+    lastMouseButtons = buttons
+    return true
+}
     private fun releasePointer(pointerId: Int, bounds: ContentBounds) {
         if (!activePointerIds.contains(pointerId)) return
         pendingMoveJobs.remove(pointerId)?.cancel()
