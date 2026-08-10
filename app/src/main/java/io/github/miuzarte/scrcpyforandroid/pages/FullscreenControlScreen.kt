@@ -271,7 +271,7 @@ fun FullscreenControlScreen(
             }
         }.onFailure { error ->
             AppRuntime.snackbar(R.string.fullscreen_failed_app_list)
-            Log.w("FullscreenControlPage", "refreshApps failed", error)
+            Log.w("", "refreshApps failed", error)
         }
     }
 
@@ -282,7 +282,7 @@ fun FullscreenControlScreen(
             }
         }.onFailure { error ->
             AppRuntime.snackbar(R.string.fullscreen_failed_tasks)
-            Log.w("FullscreenControlPage", "refreshRecentTasks failed", error)
+            Log.w("", "refreshRecentTasks failed", error)
         }
     }
 
@@ -292,7 +292,7 @@ fun FullscreenControlScreen(
             text = text,
             keyInjectMode = currentSession?.keyInjectMode ?: ClientOptions.KeyInjectMode.MIXED,
         ) { error, useClipboardPaste ->
-            Log.w("FullscreenControlPage", "commitImeText failed", error)
+            Log.w("", "commitImeText failed", error)
             AppRuntime.snackbar(
                 if (useClipboardPaste) R.string.fullscreen_paste_non_ascii
                 else R.string.fullscreen_text_input_failed,
@@ -356,7 +356,7 @@ fun FullscreenControlScreen(
                         }
                     }.onFailure { e ->
                         Log.w(
-                            "FullscreenControlPage",
+                            "",
                             "sendKeycode failed for keycode=$it",
                             e,
                         )
@@ -388,7 +388,7 @@ fun FullscreenControlScreen(
                 .padding(contentPadding),
         ) {
             val session = currentSession ?: return@Box
-            FullscreenControlPage(
+            (
                 scrcpy = scrcpy,
                 session = session,
                 onDismiss = onBack,
@@ -645,7 +645,6 @@ fun FullscreenControlPage(
         vScroll: Float,
         buttons: Int,
     ) -> Unit,
-    onBackOrScreenOn: suspend (action: Int) -> Unit,
     onBackOrScreenOn: suspend (action: Int) -> Unit,
 ) {
     BackHandler(enabled = enableBackHandler, onBack = onDismiss)
