@@ -388,7 +388,8 @@ fun FullscreenControlScreen(
                 .padding(contentPadding),
         ) {
             val session = currentSession ?: return@Box
-            (
+
+            FullscreenControlPage(
                 scrcpy = scrcpy,
                 session = session,
                 onDismiss = onBack,
