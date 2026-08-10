@@ -414,6 +414,19 @@ fun FullscreenControlScreen(
                         )
                     }
                 },
+                onInjectScroll = { x, y, hScroll, vScroll, buttons ->
+                    withContext(Dispatchers.IO) {
+                        scrcpy.injectScroll(
+                            x = x,
+                            y = y,
+                            screenWidth = session.width,
+                            screenHeight = session.height,
+                            hScroll = hScroll,
+                            vScroll = vScroll,
+                            buttons = buttons,
+                        )
+                    }
+                },
                 onBackOrScreenOn = { action ->
                     withContext(Dispatchers.IO) { scrcpy.pressBackOrTurnScreenOn(action) }
                 },
@@ -615,7 +628,7 @@ fun FullscreenControlPage(
     enableBackHandler: Boolean = true,
     interactive: Boolean = true,
     onVideoBoundsInWindowChanged: (Rect?) -> Unit = {},
-    onImeCommitText: suspend (String) -> Unit,
+    onImeCommitText: suspend (String) -> Unit,    
     onInjectTouch: suspend (
         action: Int,
         pointerId: Long,
@@ -625,6 +638,14 @@ fun FullscreenControlPage(
         actionButton: Int,
         buttons: Int,
     ) -> Unit,
+    onInjectScroll: suspend (
+        x: Int,
+        y: Int,
+        hScroll: Float,
+        vScroll: Float,
+        buttons: Int,
+    ) -> Unit,
+    onBackOrScreenOn: suspend (action: Int) -> Unit,
     onBackOrScreenOn: suspend (action: Int) -> Unit,
 ) {
     BackHandler(enabled = enableBackHandler, onBack = onDismiss)
@@ -654,6 +675,7 @@ fun FullscreenControlPage(
             nextPointerLabel = nextPointerLabel,
             mouseHoverEnabled = session.mouseHover,
             onInjectTouch = onInjectTouch,
+            onInjectScroll = onInjectScroll,
             onBackOrScreenOn = onBackOrScreenOn,
             onActiveTouchCountChanged = { activeTouchCount = it },
             onActiveTouchDebugChanged = { activeTouchDebug = it },
