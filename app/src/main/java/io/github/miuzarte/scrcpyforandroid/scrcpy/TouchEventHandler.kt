@@ -43,7 +43,7 @@ class TouchEventHandler(
         hScroll: Float,
         vScroll: Float,
         buttons: Int,
-    ) -> Unit,
+    ) -> Unit = { _, _, _, _, _ -> },
     private val onBackOrScreenOn: suspend (action: Int) -> Unit,
     private val onActiveTouchCountChanged: (Int) -> Unit,
     private val onActiveTouchDebugChanged: (String) -> Unit,
