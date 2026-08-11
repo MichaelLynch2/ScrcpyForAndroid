@@ -149,15 +149,78 @@ class Scrcpy(
             throw IllegalStateException("Scrcpy session is already running")
         }
 
-        Log.i(TAG, "Initializing scrcpy session")
+Log.i(TAG, "Initializing scrcpy session")
+try {
 
-        try {
-            // Validate options
-            options.validate()
+    /*
+     * BOOX / S26 external-display mode.
+     *
+     * Samsung assigns the HDMI/DeX display a new display ID
+     * whenever it is recreated, so never rely on the saved ID.
+     *
+     * If the profile requests a secondary display, dynamically
+     * locate the current external landscape display and use it.
+     */
+    if (
+        options.videoSource == VideoSource.DISPLAY &&
+        options.newDisplay.isBlank() &&
+        options.displayId > 0
+    ) {
+        runCatching {
+            val displays = listings.getDisplays(forceRefresh = true)
 
-            // Generate session ID
-            val scid = generateScid()
-            Log.d(TAG, "scid=0x${scid.toString(16)}")
+            Log.i(
+                TAG,
+                "Available displays: " +
+                    displays.joinToString { "${it.id}:${it.width}x${it.height}" },
+            )
+
+            val externalDisplay = displays
+                .filter { display ->
+                    display.id != 0 &&
+                    display.width > display.height
+                }
+                .maxByOrNull { display ->
+                    display.width.toLong() * display.height.toLong()
+                }
+
+            if (externalDisplay != null) {
+                Log.i(
+                    TAG,
+                    "Auto-selected external display " +
+                        "${externalDisplay.id} " +
+                        "(${externalDisplay.width}x${externalDisplay.height})",
+                )
+
+                // Replace whatever stale display ID was saved in the profile.
+                options.displayId = externalDisplay.id
+
+                // BOOX-friendly 4:3 desktop.
+                val sizeResult = NativeAdbService.shell(
+                    "wm size 1920x1440 -d ${externalDisplay.id}",
+                )
+
+                Log.i(TAG, "External display size override: $sizeResult")
+
+                val densityResult = NativeAdbService.shell(
+                    "wm density 220 -d ${externalDisplay.id}",
+                )
+
+                Log.i(TAG, "External display density override: $densityResult")
+            } else {
+                Log.w(TAG, "No external landscape display found")
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to configure external display", error)
+        }
+    }
+
+    // Validate options AFTER resolving the current display ID.
+    options.validate()
+
+    // Generate session ID
+    val scid = generateScid()
+    Log.d(TAG, "scid=0x${scid.toString(16)}")
 
             val serverJar = if (customServerUri.isNullOrBlank()) {
                 extractAssetToCache(serverAsset)
