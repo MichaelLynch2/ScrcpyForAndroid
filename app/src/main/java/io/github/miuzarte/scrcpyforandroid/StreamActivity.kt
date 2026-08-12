@@ -22,32 +22,60 @@ import android.view.KeyEvent
 import androidx.lifecycle.lifecycleScope
 import io.github.miuzarte.scrcpyforandroid.services.AppRuntime
 import kotlinx.coroutines.launch
-
+import android.Manifest
+import android.os.Build
+import androidx.activity.result.contract.ActivityResultContracts
+import io.github.miuzarte.scrcpyforandroid.services.BluetoothHidKeyboard
 
 class StreamActivity: FragmentActivity() {
-        override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-            val scrcpy = AppRuntime.scrcpy
-
-            if (scrcpy?.isStarted() == true &&
-                (event.action == KeyEvent.ACTION_DOWN ||
-                 event.action == KeyEvent.ACTION_UP)
-            ) {
-                lifecycleScope.launch {
-                    scrcpy.injectKeycode(
-                    action = event.action,
-                    keycode = event.keyCode,
-                    repeat = event.repeatCount,
-                    metaState = event.metaState,
-                    )
-                }
-
-                return true
+        private val bluetoothPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            if (granted) {
+                BluetoothHidKeyboard.start(this)
             }
+        }
+        
+override fun dispatchKeyEvent(event: KeyEvent): Boolean {
 
-            return super.dispatchKeyEvent(event)
+    /*
+     * Preferred path:
+     * BOOX folio -> real Bluetooth HID -> S26.
+     */
+    if (BluetoothHidKeyboard.handleKeyEvent(event)) {
+        return true
+    }
+
+    /*
+     * Fallback:
+     * retain our existing scrcpy injected-keycode path until
+     * Bluetooth HID has successfully connected.
+     */
+    val scrcpy = AppRuntime.scrcpy
+
+    if (
+        scrcpy?.isStarted() == true &&
+        (
+            event.action == KeyEvent.ACTION_DOWN ||
+            event.action == KeyEvent.ACTION_UP
+        )
+    ) {
+        lifecycleScope.launch {
+            scrcpy.injectKeycode(
+                action = event.action,
+                keycode = event.keyCode,
+                repeat = event.repeatCount,
+                metaState = event.metaState,
+            )
         }
 
-    
+        return true
+    }
+
+    return super.dispatchKeyEvent(event)
+}
+
     private val basicPip by lazy { BasicPictureInPicture(this, ContextCompat.getMainExecutor(this)) }
 
     private val pipActionReceiver = PictureInPictureActionReceiver()
@@ -71,6 +99,13 @@ class StreamActivity: FragmentActivity() {
     // 都会重建 activity
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (BluetoothHidKeyboard.hasPermission(this)) {
+            BluetoothHidKeyboard.start(this)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            bluetoothPermissionLauncher.launch(
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+        }
         currentActivityRef = WeakReference(this)
         AppScreenOn.register(window)
 
