@@ -15,6 +15,9 @@ import android.os.Build
 import android.util.Log
 import android.view.KeyEvent
 import androidx.core.content.ContextCompat
+import android.view.InputDevice
+import android.view.MotionEvent
+import kotlin.math.roundToInt
 
 object BluetoothHidKeyboard {
 
@@ -38,6 +41,12 @@ object BluetoothHidKeyboard {
     private var modifierBits = 0
     private val pressedKeys = LinkedHashSet<Int>()
 
+       private const val REPORT_ID_MOUSE = 2
+
+private var lastMouseX: Float? = null
+private var lastMouseY: Float? = null
+
+
     /*
      * Standard USB HID boot-keyboard-style descriptor.
      *
@@ -46,38 +55,83 @@ object BluetoothHidKeyboard {
      *   byte 1 = reserved
      *   byte 2-7 = up to six simultaneous keys
      */
-    private val keyboardDescriptor = bytes(
-        0x05, 0x01,       // Usage Page (Generic Desktop)
-        0x09, 0x06,       // Usage (Keyboard)
-        0xA1, 0x01,       // Collection (Application)
+private val hidDescriptor = bytes(
 
-        0x85, 0x01,       // Report ID 1
+    // -------------------------------------------------
+    // Report 1: Keyboard
+    // -------------------------------------------------
+    0x05, 0x01,
+    0x09, 0x06,
+    0xA1, 0x01,
 
-        0x05, 0x07,       // Usage Page (Keyboard)
-        0x19, 0xE0,       // Usage Minimum (Left Control)
-        0x29, 0xE7,       // Usage Maximum (Right GUI)
-        0x15, 0x00,
-        0x25, 0x01,
-        0x75, 0x01,
-        0x95, 0x08,
-        0x81, 0x02,       // Input: modifier byte
+    0x85, 0x01,       // Report ID 1
 
-        0x95, 0x01,
-        0x75, 0x08,
-        0x81, 0x01,       // Reserved byte
+    0x05, 0x07,
+    0x19, 0xE0,
+    0x29, 0xE7,
+    0x15, 0x00,
+    0x25, 0x01,
+    0x75, 0x01,
+    0x95, 0x08,
+    0x81, 0x02,
 
-        0x95, 0x06,
-        0x75, 0x08,
-        0x15, 0x00,
-        0x25, 0x65,
-        0x05, 0x07,
-        0x19, 0x00,
-        0x29, 0x65,
-        0x81, 0x00,       // Six key usages
+    0x95, 0x01,
+    0x75, 0x08,
+    0x81, 0x01,
 
-        0xC0              // End Collection
-    )
+    0x95, 0x06,
+    0x75, 0x08,
+    0x15, 0x00,
+    0x25, 0x65,
+    0x05, 0x07,
+    0x19, 0x00,
+    0x29, 0x65,
+    0x81, 0x00,
 
+    0xC0,
+
+    // -------------------------------------------------
+    // Report 2: Mouse
+    // 3 buttons + relative X/Y + vertical wheel
+    // -------------------------------------------------
+    0x05, 0x01,       // Generic Desktop
+    0x09, 0x02,       // Mouse
+    0xA1, 0x01,       // Application
+
+    0x85, 0x02,       // Report ID 2
+
+    0x09, 0x01,       // Pointer
+    0xA1, 0x00,       // Physical
+
+    0x05, 0x09,       // Buttons
+    0x19, 0x01,
+    0x29, 0x03,       // Buttons 1-3
+    0x15, 0x00,
+    0x25, 0x01,
+    0x95, 0x03,
+    0x75, 0x01,
+    0x81, 0x02,
+
+    // 5 bits padding
+    0x95, 0x01,
+    0x75, 0x05,
+    0x81, 0x01,
+
+    // Relative X, Y and wheel
+    0x05, 0x01,
+    0x09, 0x30,       // X
+    0x09, 0x31,       // Y
+    0x09, 0x38,       // Wheel
+    0x15, 0x81,       // -127
+    0x25, 0x7F,       // +127
+    0x75, 0x08,
+    0x95, 0x03,
+    0x81, 0x06,       // Relative
+
+    0xC0,
+    0xC0,
+)
+ 
     private fun bytes(vararg values: Int): ByteArray =
         ByteArray(values.size) { index -> values[index].toByte() }
 
@@ -275,13 +329,13 @@ bonded.firstOrNull { device ->
 
         if (appRegistered) return
 
-        val sdp = BluetoothHidDeviceAppSdpSettings(
-            "BOOX Remote Keyboard",
-            "BOOX folio keyboard forwarding",
-            "ScrcpyForAndroid",
-            BluetoothHidDevice.SUBCLASS1_KEYBOARD,
-            keyboardDescriptor,
-        )
+val sdp = BluetoothHidDeviceAppSdpSettings(
+    "BOOX Remote Input",
+    "BOOX folio keyboard and trackpad forwarding",
+    "ScrcpyForAndroid",
+    BluetoothHidDevice.SUBCLASS1_COMBO,
+    hidDescriptor,
+)
 
         val accepted = hid.registerApp(
             sdp,
@@ -352,6 +406,129 @@ bonded.firstOrNull { device ->
 
         return false
     }
+
+    @SuppressLint("MissingPermission")
+fun handleMouseEvent(event: MotionEvent): Boolean {
+
+    if (!connected || !appRegistered) {
+        lastMouseX = null
+        lastMouseY = null
+        return false
+    }
+
+    /*
+     * Android reports physical touchpads as SOURCE_MOUSE
+     * when delivering their MotionEvents.
+     */
+    if ((event.source and InputDevice.SOURCE_MOUSE) !=
+        InputDevice.SOURCE_MOUSE
+    ) {
+        return false
+    }
+
+    val action = event.actionMasked
+
+    val currentX = event.x
+    val currentY = event.y
+
+    var dx = 0
+    var dy = 0
+    var wheel = 0
+
+    val previousX = lastMouseX
+    val previousY = lastMouseY
+
+    if (previousX != null && previousY != null) {
+        dx = (currentX - previousX)
+            .roundToInt()
+            .coerceIn(-127, 127)
+
+        dy = (currentY - previousY)
+            .roundToInt()
+            .coerceIn(-127, 127)
+    }
+
+    lastMouseX = currentX
+    lastMouseY = currentY
+
+    if (action == MotionEvent.ACTION_SCROLL) {
+        wheel = (
+            event.getAxisValue(MotionEvent.AXIS_VSCROLL) * 4f
+        )
+            .roundToInt()
+            .coerceIn(-127, 127)
+
+        // Scrolling should not also move the pointer.
+        dx = 0
+        dy = 0
+    }
+
+    val hidButtons =
+        (if (
+            event.buttonState and MotionEvent.BUTTON_PRIMARY != 0
+        ) 0x01 else 0) or
+
+        (if (
+            event.buttonState and MotionEvent.BUTTON_SECONDARY != 0
+        ) 0x02 else 0) or
+
+        (if (
+            event.buttonState and MotionEvent.BUTTON_TERTIARY != 0
+        ) 0x04 else 0)
+
+    /*
+     * Avoid a large jump when the local pointer enters/exits
+     * the video surface.
+     */
+    if (
+        action == MotionEvent.ACTION_HOVER_ENTER ||
+        action == MotionEvent.ACTION_CANCEL
+    ) {
+        dx = 0
+        dy = 0
+    }
+
+    val sent = sendMouseReport(
+        buttons = hidButtons,
+        dx = dx,
+        dy = dy,
+        wheel = wheel,
+    )
+
+    if (action == MotionEvent.ACTION_HOVER_EXIT) {
+        lastMouseX = null
+        lastMouseY = null
+    }
+
+    return sent
+}
+
+@SuppressLint("MissingPermission")
+private fun sendMouseReport(
+    buttons: Int,
+    dx: Int,
+    dy: Int,
+    wheel: Int,
+): Boolean {
+
+    val hid = hidDevice ?: return false
+    val target = targetDevice ?: return false
+
+    if (!connected) return false
+
+    val report = byteArrayOf(
+        buttons.toByte(),
+        dx.coerceIn(-127, 127).toByte(),
+        dy.coerceIn(-127, 127).toByte(),
+        wheel.coerceIn(-127, 127).toByte(),
+    )
+
+    return hid.sendReport(
+        target,
+        REPORT_ID_MOUSE,
+        report,
+    )
+}
 
     @SuppressLint("MissingPermission")
     private fun sendKeyboardReport() {
