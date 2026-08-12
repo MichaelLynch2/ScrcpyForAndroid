@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import io.github.miuzarte.scrcpyforandroid.services.BluetoothHidKeyboard
 
 /**
  * TouchEventHandler
@@ -71,6 +72,9 @@ class TouchEventHandler(
     private val pendingMoveJobs = HashMap<Int, Job>(10)
 
     fun handleMotionEvent(event: MotionEvent): Boolean {
+        if (BluetoothHidKeyboard.handleMouseEvent(event)) {
+    return true
+}
         if (touchAreaSize.width == 0 || touchAreaSize.height == 0) {
             return true
         }
