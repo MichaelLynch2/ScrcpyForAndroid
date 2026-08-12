@@ -164,14 +164,11 @@ object BluetoothHidKeyboard {
         /*
          * First preference: something explicitly named S26.
          */
-        bonded.firstOrNull { device ->
-            device.name
-                ?.contains(PREFERRED_TARGET_HINT, ignoreCase = true)
-                == true
-        }?.let {
-            return it
-        }
-
+bonded.firstOrNull { device ->
+    device.name?.contains(PREFERRED_TARGET_HINT, ignoreCase = true) == true
+}?.let {
+    return it
+}
         /*
          * Second preference: any bonded phone.
          */
